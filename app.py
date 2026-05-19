@@ -1,36 +1,31 @@
 import streamlit as st
-import smtplib
-from email.mime.text import MIMEText
+import requests
 import google.generativeai as genai
 from supabase import create_client, Client
 
 # --- Setup & Configuration ---
-# Pulling secrets securely from Streamlit Cloud Secrets (DO NOT hardcode keys here!)
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
-SENDER_EMAIL = st.secrets["SENDER_EMAIL"]
-SENDER_PASSWORD = st.secrets["SENDER_PASSWORD"]
+TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
 
 # Initialize Clients
 genai.configure(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-def send_email(subject, body):
-    msg = MIMEText(body)
-    msg['Subject'] = subject
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = ADMIN_EMAIL
-    
-    # Using Gmail SMTP
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.sendmail(SENDER_EMAIL, ADMIN_EMAIL, msg.as_string())
+        requests.post(url, json=payload)
     except Exception as e:
-        st.error(f"EMAIL ERROR: {e}") # <--- CHANGE THIS LINE
+        print(f"Telegram API Error: {e}")
 
 # --- User Interface ---
 st.title("Carsem Code Error Assistant")
@@ -45,13 +40,12 @@ if 'user_info' not in st.session_state:
         submit = st.form_submit_button("Start Chat")
         
         if submit and name and ws_number and email:
-            # 1. Send details to you via email first (most reliable)
-            send_email(
-                "New Chatbot User Registered", 
-                f"Name: {name}\nWS: {ws_number}\nEmail: {email}"
+            # 1. Send details to your Telegram
+            send_telegram_message(
+                f"🚨 *New Chatbot User*\n*Name:* {name}\n*WS:* {ws_number}\n*Email:* {email}"
             )
             
-            # 2. Attempt to record to Supabase, but bypass quietly if it fails
+            # 2. Attempt to record to Supabase
             try:
                 supabase.table("users").insert({
                     "name": name,
@@ -59,10 +53,9 @@ if 'user_info' not in st.session_state:
                     "email": email
                 }).execute()
             except Exception as e:
-                # Log the error quietly in the background, don't stop the user
                 print(f"Supabase Insert Error: {e}") 
             
-            # 3. Save to session and move to chat interface regardless of DB success
+            # 3. Save to session and move to chat interface
             st.session_state.user_info = {"name": name, "ws": ws_number, "email": email}
             st.rerun()
 
@@ -83,7 +76,6 @@ else:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # Prompt engineering to restrict Gemini to coding only
         system_instructions = """
         You are a strict coding assistant. You ONLY answer programming errors, debugging questions, and code logic. 
         If the user asks ANYTHING else (general questions, chit-chat, non-coding requests), you must reply with EXACTLY this string and nothing else: FORWARD_TO_HUMAN
@@ -96,15 +88,15 @@ else:
                 response = model.generate_content(full_prompt)
                 reply = response.text.strip()
                 
-                # If Gemini detects it's not a coding issue, trigger the email
+                # Trigger Telegram fallback
                 if reply == 'FORWARD_TO_HUMAN':
                     fallback_msg = "I only handle code errors. Your query has been forwarded to the administrator."
                     st.markdown(fallback_msg)
                     st.session_state.messages.append({"role": "assistant", "content": fallback_msg})
                     
-                    # Send the actual query to your email
-                    email_body = f"User: {st.session_state.user_info['name']} (WS: {st.session_state.user_info['ws']})\nCarsem Email: {st.session_state.user_info['email']}\n\nQuery: {prompt}"
-                    send_email("Non-Coding Query Forwarded", email_body)
+                    # Send the query to your Telegram
+                    tele_msg = f"⚠️ *Non-Coding Query*\n*User:* {st.session_state.user_info['name']} ({st.session_state.user_info['ws']})\n*Query:* {prompt}"
+                    send_telegram_message(tele_msg)
                 else:
                     st.markdown(reply)
                     st.session_state.messages.append({"role": "assistant", "content": reply})
