@@ -16,7 +16,7 @@ SENDER_PASSWORD = st.secrets["SENDER_PASSWORD"]
 # Initialize Clients
 genai.configure(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 def send_email(subject, body):
     msg = MIMEText(body)
