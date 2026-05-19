@@ -30,7 +30,7 @@ def send_email(subject, body):
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.sendmail(SENDER_EMAIL, ADMIN_EMAIL, msg.as_string())
     except Exception as e:
-        print(f"Failed to send email. Check your App Password. Error: {e}")
+        st.error(f"EMAIL ERROR: {e}") # <--- CHANGE THIS LINE
 
 # --- User Interface ---
 st.title("Carsem Code Error Assistant")
